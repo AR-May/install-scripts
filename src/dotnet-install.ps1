@@ -773,5 +773,6 @@ Remove-Item $ZipPath
 
 Prepend-Sdk-InstallRoot-To-Path -InstallRoot $InstallRoot -BinFolderRelativePath $BinFolderRelativePath
 
+Say "Please check the dependencies: https://docs.microsoft.com/en-us/dotnet/core/install/windows#dependencies."
 Say "Installation finished"
 exit 0

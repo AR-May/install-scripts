@@ -218,6 +218,51 @@ get_legacy_os_name() {
     return 1
 }
 
+
+get_docs_os_name() {
+    eval $invocation
+
+    local uname=$(uname)
+    if [ "$uname" = "Darwin" ]; then
+        echo "macos"
+        return 0
+    elif [ -n "$runtime_id" ]; then
+        os=$(echo "${runtime_id//[.-]/ }" | awk '{print $1}' )
+        case "$os" in
+            "osx")
+                echo "macos"
+                return 0
+                ;;
+            "rhel")
+                echo "linux-rhel"
+                return 0
+                ;;
+        esac
+    fi
+
+
+    if [ -e /etc/os-release ]; then
+        . /etc/os-release
+        os=$ID
+        if [ -n "$os" ]; then
+            echo "linux-$os"
+            return 0
+        fi
+    elif [ -e /etc/redhat-release ]; then
+        echo "linux-rhel"
+    fi
+
+    say-verbose "OS name for docs could not be detected: UName = $uname"
+    return 1
+}
+
+get_dependencies_link () {
+    eval $invocation
+
+    echo "https://docs.microsoft.com/en-us/dotnet/core/install/$(get_docs_os_name)#dependencies"  || echo "https://docs.microsoft.com/en-us/dotnet/core/install"
+    return 0
+}
+
 machine_has() {
     eval $invocation
 
@@ -241,6 +286,7 @@ check_min_reqs() {
     return 0
 }
 
+#TODO : remove
 check_pre_reqs() {
     eval $invocation
 
@@ -1116,6 +1162,13 @@ if [ "$dry_run" = true ]; then
     fi
     repeatable_command+="$non_dynamic_parameters"
     say "Repeatable invocation: $repeatable_command"
+
+    # TODO remove debugging
+    get_linux_platform_name
+    get_docs_os_name
+    get_dependencies_link
+    say "Please check the dependencies: $(get_dependencies_link)."
+
     exit 0
 fi
 
@@ -1130,4 +1183,5 @@ else
     say "Binaries of dotnet can be found in $bin_path"
 fi
 
+say "Please check the dependencies: $(get_dependencies_link)."
 say "Installation finished successfully."
