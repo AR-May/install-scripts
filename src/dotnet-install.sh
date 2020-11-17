@@ -402,6 +402,7 @@ get_latest_version_info() {
     fi
     say_verbose "get_latest_version_info: latest url: $version_file_url"
 
+    # TODO : check download call
     download "$version_file_url"
     return $?
 }
@@ -684,6 +685,28 @@ extract_dotnet_package() {
     fi
 }
 
+downloadcurl_http_header() {
+    eval $invocation
+    local remote_path="$1"
+
+    remote_path_with_credential="${remote_path}${feed_credential}"
+    curl_options="-I -sSL --retry 20 --retry-delay 2 --connect-timeout 15 "
+
+    curl $curl_options "$remote_path_with_credential" || return 1
+    return 0
+}
+
+downloadwget_http_header() {
+    eval $invocation
+    local remote_path="$1"
+
+    remote_path_with_credential="${remote_path}${feed_credential}"
+    wget_options="-q -S --spider --tries 20 --waitretry 2 --connect-timeout 15 "
+
+    wget $wget_options "$remote_path_with_credential" 2>&1 || return 1
+    return 0
+}
+
 # args:
 # remote_path - $1
 # [out_path] - $2 - stdout if not provided
@@ -719,17 +742,18 @@ downloadcurl() {
     local out_path="${2:-}"
 
     # Append feed_credential as late as possible before calling curl to avoid logging feed_credential
-    remote_path="${remote_path}${feed_credential}"
-
+    local remote_path_with_credential="${remote_path}${feed_credential}"
     local curl_options="--retry 20 --retry-delay 2 --connect-timeout 15 -sSL -f --create-dirs "
     local failed=false
     if [ -z "$out_path" ]; then
-        curl $curl_options "$remote_path" || failed=true
+        curl $curl_options "$remote_path_with_credential" || failed=true
     else
-        curl $curl_options -o "$out_path" "$remote_path" || failed=true
+        curl $curl_options -o "$out_path" "$remote_path_with_credential" || failed=true
     fi
     if [ "$failed" = true ]; then
-        say_verbose "Curl download failed"
+        local response=$(downloadcurl_http_header $remote_path_with_credential)
+        http_code=$( echo "$response" | awk '/^HTTP/{print $2}' | tail -1 )
+        say_verbose "Curl download $remote_path failed. Http code: $http_code."
         return 1
     fi
     return 0
@@ -741,16 +765,18 @@ downloadwget() {
     local out_path="${2:-}"
 
     # Append feed_credential as late as possible before calling wget to avoid logging feed_credential
-    remote_path="${remote_path}${feed_credential}"
+    local remote_path_with_credential="${remote_path}${feed_credential}"
     local wget_options="--tries 20 --waitretry 2 --connect-timeout 15 "
     local failed=false
     if [ -z "$out_path" ]; then
-        wget -q $wget_options -O - "$remote_path" || failed=true
+        wget -q $wget_options -O - "$remote_path_with_credential" || failed=true
     else
-        wget $wget_options -O "$out_path" "$remote_path" || failed=true
+        wget $wget_options -O "$out_path" "$remote_path_with_credential" || failed=true
     fi
     if [ "$failed" = true ]; then
-        say_verbose "Wget download failed"
+        local response=$(downloadwget_http_header $remote_path_with_credential)
+        http_code=$( echo "$response" | awk '/^  HTTP/{print $2}' | tail -1 )
+        say_verbose "Wget download $remote_path failed. Http code: $http_code."
         return 1
     fi
     return 0
@@ -820,7 +846,9 @@ install_dotnet() {
 
     # Failures are normal in the non-legacy case for ultimately legacy downloads.
     # Do not output to stderr, since output to stderr is considered an error.
-    download "$download_link" "$zip_path" 2>&1 || download_failed=true
+    http_code=""
+    # TODO : check download call
+    download "${download_link}afec" "$zip_path" 2>&1 || download_failed=true
 
     #  if the download fails, download the legacy_download_link
     if [ "$download_failed" = true ]; then
@@ -832,7 +860,8 @@ install_dotnet() {
             zip_path="$(mktemp "$temporary_file_template")"
             say_verbose "Legacy zip path: $zip_path"
             say "Downloading legacy link: $download_link"
-            download "$download_link" "$zip_path" 2>&1 || download_failed=true
+            # TODO : check download call
+            download "${download_link}afec" "$zip_path" 2>&1 || download_failed=true
 
             if [ "$download_failed" = true ]; then
                 say "Cannot download: $download_link"
