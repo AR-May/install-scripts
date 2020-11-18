@@ -402,7 +402,6 @@ get_latest_version_info() {
     fi
     say_verbose "get_latest_version_info: latest url: $version_file_url"
 
-    # TODO : check download call
     download "$version_file_url"
     return $?
 }
@@ -753,7 +752,8 @@ downloadcurl() {
     if [ "$failed" = true ]; then
         local response=$(downloadcurl_http_header $remote_path_with_credential)
         http_code=$( echo "$response" | awk '/^HTTP/{print $2}' | tail -1 )
-        say_verbose "Curl download $remote_path failed. Http code: $http_code."
+        download_error_msg="Curl download $remote_path failed. Http code: $http_code."
+        say_verbose "$download_error_msg"
         return 1
     fi
     return 0
@@ -776,7 +776,8 @@ downloadwget() {
     if [ "$failed" = true ]; then
         local response=$(downloadwget_http_header $remote_path_with_credential)
         http_code=$( echo "$response" | awk '/^  HTTP/{print $2}' | tail -1 )
-        say_verbose "Wget download $remote_path failed. Http code: $http_code."
+        download_error_msg="Wget download $remote_path failed. Http code: $http_code."
+        say_verbose "$download_error_msg"
         return 1
     fi
     return 0
@@ -842,36 +843,65 @@ install_dotnet() {
     zip_path="$(mktemp "$temporary_file_template")"
     say_verbose "Zip path: $zip_path"
 
-    say "Downloading link: $download_link"
-
     # Failures are normal in the non-legacy case for ultimately legacy downloads.
     # Do not output to stderr, since output to stderr is considered an error.
-    http_code=""
-    # TODO : check download call
-    download "${download_link}afec" "$zip_path" 2>&1 || download_failed=true
+    say "Downloading link: $download_link"
+
+    # the download function will fill the following variables.
+    http_code=""; download_error_msg=""
+    download "$download_link" "$zip_path" 2>&1 || download_failed=true
+    primary_path_http_code="$http_code"; primary_path_download_error_msg="$download_error_msg"
 
     #  if the download fails, download the legacy_download_link
     if [ "$download_failed" = true ]; then
-        say "Cannot download: $download_link"
+        case $primary_path_http_code in
+        404)
+            say "The primary path $download_link is not available."
+            ;;
+        *)
+            say "Cannot download via the primary path $download_link, returned http code: $primary_path_http_code."
+            ;;
+        esac
         rm -f "$zip_path" 2>&1 && say_verbose "Temporary zip file $zip_path was removed"
+
         if [ "$valid_legacy_download_link" = true ]; then
             download_failed=false
             download_link="$legacy_download_link"
             zip_path="$(mktemp "$temporary_file_template")"
             say_verbose "Legacy zip path: $zip_path"
             say "Downloading legacy link: $download_link"
-            # TODO : check download call
-            download "${download_link}afec" "$zip_path" 2>&1 || download_failed=true
+
+            # the download function will fill the following variables.
+            http_code=""; download_error_msg=""
+            download "$download_link" "$zip_path" 2>&1 || download_failed=true
+            legacy_path_http_code="$http_code";  legacy_path_download_error_msg="$download_error_msg"
 
             if [ "$download_failed" = true ]; then
-                say "Cannot download: $download_link"
+                case $legacy_path_http_code in
+                404)
+                    say "The legacy path $download_link is not available."
+                    ;;
+                *)
+                    say "Cannot download via the legacy path $download_link, returned http code: $legacy_path_http_code."
+                    ;;
+                esac
                 rm -f "$zip_path" 2>&1 && say_verbose "Temporary zip file $zip_path was removed"
             fi
         fi
     fi
 
     if [ "$download_failed" = true ]; then
-        say_err "Could not find/download: \`$asset_name\` with version = $specific_version"
+        if [[ "$primary_path_http_code" = "404" && "$legacy_path_http_code" = "404" ]]; then
+            say_err "Could not find \`$asset_name\` with version = $specific_version"
+        else
+            say_err "Could not download: \`$asset_name\` with version = $specific_version:"
+            if [ "$primary_path_http_code" != "404" ]; then
+                say_err "$primary_path_download_error_msg"
+            fi
+            if [ "$legacy_path_http_code" != "404" ]; then
+                say_err "$legacy_path_download_error_msg"
+            fi
+        fi
         say_err "Refer to: https://aka.ms/dotnet-os-lifecycle for information on .NET Core support"
         return 1
     fi
