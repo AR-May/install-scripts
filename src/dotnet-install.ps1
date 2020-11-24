@@ -289,16 +289,34 @@ function GetHTTPResponse([Uri] $Uri)
             $Task = $HttpClient.GetAsync("${Uri}${FeedCredential}").ConfigureAwait("false");
             $Response = $Task.GetAwaiter().GetResult();
             if (($Response -eq $null) -or (-not ($Response.IsSuccessStatusCode))) {
-                 # The feed credential is potentially sensitive info. Do not log FeedCredential to console output.
-                $ErrorMsg = "Failed to download $Uri."
+                # The feed credential is potentially sensitive info. Do not log FeedCredential to console output.
+                $ErrorMsg = ""
                 if ($Response -ne $null) {
-                    $ErrorMsg += "  $Response"
+                    $ErrorMsg += "$Response"
                 }
-
                 throw $ErrorMsg
             }
 
             return $Response
+
+        }
+        catch {
+            $ErrorMsg = "Failed to download $Uri.`r`n"
+
+            # Pick up the exception message and inner exceptions' messages if they exist
+            $CurrentException = $PSItem.Exception
+            $ErrorMsg += $CurrentException.Message + "`r`n"
+            while ($CurrentException.InnerException) {
+              $CurrentException = $CurrentException.InnerException
+              $ErrorMsg += "  " + $CurrentException.Message + "`r`n"
+            }
+
+            # Check if it is the issue with TLS.
+            if ($ErrorMsg -like "*SSL/TLS*") {
+                $ErrorMsg += "Ensure that TLS 1.2 or higher is enabled to use this script.`r`n"
+            }
+
+            throw "$ErrorMsg"
         }
         finally {
              if ($HttpClient -ne $null) {
